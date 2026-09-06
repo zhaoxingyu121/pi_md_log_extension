@@ -1,0 +1,313 @@
+/**
+ * Standalone integration checks for pi-md-log semantics, run without pi:
+ *
+ *   node test/integration.ts
+ *
+ * Verifies (per design-review.md v2):
+ *   1. /log-export to a missing file creates it with a header and appends the
+ *      whole branch.
+ *   2. /log-export to an existing file appends directly (duplicates allowed,
+ *      no scanning).
+ *   3. /log-bind never backfills: only content appearing after the bind point
+ *      is appended.
+ *   4. Bind advances a forward pointer: repeated settles append each entry once.
+ *   5. /tree deactivates auto-append; settled() then writes nothing.
+ *   6. Export to the bound file moves the pointer so bind does not double-write.
+ *   7. Forked sessions (different session file, copied state) never inherit a
+ *      binding.
+ */
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { LogController, LOG_STATE_TYPE } from "../src/controller.ts";
+
+interface StoredEntry {
+  type: string;
+  id: string;
+  parentId: string | null;
+  timestamp: string;
+  customType?: string;
+  data?: unknown;
+  message?: unknown;
+  summary?: string;
+  tokensBefore?: number;
+}
+
+class FakeSessionManager {
+  entries: StoredEntry[] = [];
+  sessionFile: string;
+  sessionId: string;
+  sessionName?: string;
+  private counter = 0;
+
+  constructor(sessionFile: string) {
+    this.sessionFile = sessionFile;
+    this.sessionId = `uuid-${sessionFile.replace(/\W/g, "")}`;
+  }
+
+  private nextId(): string {
+    this.counter += 1;
+    return `id${this.counter}`;
+  }
+
+  append(entry: Omit<StoredEntry, "id" | "parentId" | "timestamp">): string {
+    const id = this.nextId();
+    const parentId = this.entries.length ? this.entries[this.entries.length - 1].id : null;
+    this.entries.push({ ...entry, id, parentId, timestamp: new Date().toISOString() });
+    return id;
+  }
+
+  appendUser(text: string): string {
+    return this.append({ type: "message", message: { role: "user", content: text, timestamp: Date.now() } });
+  }
+
+  appendAssistant(text: string): string {
+    return this.append({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+        stopReason: "stop",
+      },
+    });
+  }
+
+  appendCompaction(summary: string): string {
+    return this.append({ type: "compaction", summary, tokensBefore: 50_000 });
+  }
+
+  appendState(data: unknown): void {
+    this.append({ type: "custom", customType: LOG_STATE_TYPE, data });
+  }
+
+  getLeafId(): string | null {
+    return this.entries.length ? this.entries[this.entries.length - 1].id : null;
+  }
+
+  getEntry(id: string): StoredEntry | undefined {
+    return this.entries.find((entry) => entry.id === id);
+  }
+
+  getSessionFile(): string | undefined {
+    return this.sessionFile;
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  getSessionName(): string | undefined {
+    return this.sessionName;
+  }
+}
+
+interface FakePi {
+  appendEntry: (customType: string, data: unknown) => void;
+}
+
+function makePi(manager: FakeSessionManager): FakePi {
+  return {
+    appendEntry(customType: string, data: unknown) {
+      // Mirrors real pi: state entries are appended at the current leaf.
+      manager.appendState(customType === LOG_STATE_TYPE ? data : { customType, data });
+    },
+  };
+}
+
+function makeCtx(manager: FakeSessionManager): ExtensionContext {
+  return {
+    cwd: "/work",
+    hasUI: false,
+    ui: {
+      notify: () => undefined,
+      setStatus: () => undefined,
+    },
+    sessionManager: manager as never,
+  } as unknown as ExtensionContext;
+}
+
+function lines(file: string): string[] {
+  return readFileSync(file, "utf8").replace(/\n$/, "").split("\n");
+}
+
+function assert(condition: boolean, message: string): void {
+  if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
+}
+
+async function main(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "pi-md-log-test-"));
+  try {
+    // ---------------------------------------------------------------- export
+    {
+      const mgr = new FakeSessionManager(join(dir, "a.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      const file = join(dir, "notes.md");
+      mgr.appendUser("Q1");
+      mgr.appendAssistant("A1");
+      mgr.appendCompaction("旧内容已压缩");
+      mgr.appendUser("Q2");
+      mgr.appendAssistant("A2");
+
+      const ok = await controller.exportLog(ctx, file);
+      assert(ok, "export created the file");
+      const content = readFileSync(file, "utf8");
+      assert(content.includes("<!-- pi-md-log:1:session="), "file header comment present");
+      assert(content.includes("Q1") && content.includes("A1"), "whole branch exported (Q1/A1)");
+      assert(content.includes("Q2") && content.includes("A2"), "whole branch exported (Q2/A2)");
+      assert(content.includes("📌 上下文压缩"), "compaction fold exported");
+      assert(content.includes("旧内容已压缩"), "compaction summary exported");
+      const before = lines(file).length;
+      await controller.exportLog(ctx, file);
+      const after = lines(file).length;
+      assert(after > before, "export to existing file appends directly");
+      console.log("  ✓ export: create + append whole branch incl. compaction; re-export appends again");
+    }
+
+    // ------------------------------------------------- bind: no backfill
+    {
+      const mgr = new FakeSessionManager(join(dir, "b.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      mgr.appendUser("old Q");
+      mgr.appendAssistant("old A");
+      const file = join(dir, "bind.md");
+
+      // Bind now: history (old Q/A) must NOT be backfilled.
+      await controller.bind(ctx, file);
+      await controller.settled(ctx);
+      let content = readFileSync(file, "utf8");
+      assert(!content.includes("old Q") && !content.includes("old A"), "bind never backfills history");
+      assert(content.includes("<!-- pi-md-log:1:session="), "bind created the file header");
+
+      // New messages after bind are recorded.
+      mgr.appendUser("new Q");
+      mgr.appendAssistant("new A");
+      await controller.settled(ctx);
+      content = readFileSync(file, "utf8");
+      assert(content.includes("new Q") && content.includes("new A"), "content after bind is recorded");
+      assert(!content.includes("old Q"), "history still absent after settle");
+
+      // Forward pointer: settling again with no new entries appends nothing.
+      const before = lines(file).length;
+      await controller.settled(ctx);
+      const after = lines(file).length;
+      assert(after === before, "no duplicate on repeated settle");
+      console.log("  ✓ bind: no backfill; forward pointer; no duplicates on repeated settle");
+    }
+
+    // ------------------------------------------------- bind + compaction live
+    {
+      const mgr = new FakeSessionManager(join(dir, "c.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      const file = join(dir, "live.md");
+      await controller.bind(ctx, file);
+      mgr.appendUser("q");
+      mgr.appendAssistant("partial answer");
+      mgr.appendCompaction("运行中上下文被压缩");
+      await controller.compacted(ctx);
+      let content = readFileSync(file, "utf8");
+      assert(content.includes("partial answer"), "turn prefix appended");
+      assert(content.includes("运行中上下文被压缩"), "compaction fold appended promptly");
+      mgr.appendAssistant("final answer");
+      await controller.settled(ctx);
+      content = readFileSync(file, "utf8");
+      assert(content.includes("final answer"), "rest of the turn appended after settle");
+      const occurrences = content.split("上下文压缩").length - 1;
+      assert(occurrences === 1, "compaction fold not duplicated after settle");
+      console.log("  ✓ compaction mid-turn: fold appended once, tail follows on settle");
+    }
+
+    // ------------------------------------------------- /tree deactivates bind
+    {
+      const mgr = new FakeSessionManager(join(dir, "d.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      const file = join(dir, "tree.md");
+      await controller.bind(ctx, file);
+      mgr.appendUser("q1");
+      mgr.appendAssistant("a1");
+      await controller.settled(ctx);
+      await controller.treeChanged(ctx);
+      mgr.appendUser("q2");
+      mgr.appendAssistant("a2");
+      await controller.settled(ctx);
+      const content = readFileSync(file, "utf8");
+      assert(content.includes("a1") && !content.includes("a2"), "/tree pauses auto-append");
+      console.log("  ✓ /tree switch pauses recording; later content not appended");
+    }
+
+    // ------------------------------------------- export to bound file syncs pointer
+    {
+      const mgr = new FakeSessionManager(join(dir, "e.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      const file = join(dir, "sync.md");
+      await controller.bind(ctx, file);
+      mgr.appendUser("q");
+      mgr.appendAssistant("a");
+      // Bind records the new message already, then export appends the whole
+      // branch again and must move the pointer to the leaf.
+      await controller.settled(ctx);
+      await controller.exportLog(ctx, file);
+      const before = lines(file).length;
+      await controller.settled(ctx);
+      const after = lines(file).length;
+      assert(after === before, "export moved pointer: no bind/export overlap");
+      console.log("  ✓ export to bound file syncs forward pointer");
+    }
+
+    // ------------------------------------------------- fork never inherits
+    {
+      const parent = new FakeSessionManager(join(dir, "parent.jsonl"));
+      const parentController = new LogController(makePi(parent) as never);
+      await parentController.start(makeCtx(parent));
+      const file = join(dir, "fork.md");
+      await parentController.bind(makeCtx(parent), file);
+      parent.appendUser("q");
+      parent.appendAssistant("a");
+      await parentController.settled(makeCtx(parent));
+
+      // Simulate /fork: new session file whose entries copy the parent's
+      // branch *including* the state custom entry (same parentId chain).
+      const fork = new FakeSessionManager(join(dir, "fork.jsonl"));
+      for (const entry of parent.entries) {
+        fork.append({ ...entry });
+      }
+      fork.sessionName = undefined;
+
+      const forkController = new LogController(makePi(fork) as never);
+      const forkCtx = makeCtx(fork);
+      await forkController.start(forkCtx);
+      // The restored state must be dropped (session file mismatch).
+      fork.appendUser("fork q");
+      fork.appendAssistant("fork a");
+      await forkController.settled(forkCtx);
+      const content = readFileSync(file, "utf8");
+      assert(content.includes("fork a") === false, "forked session did not auto-write to the bound file");
+      console.log("  ✓ fork does not inherit the binding (validated by session file)");
+    }
+
+    console.log("\nAll integration checks passed.");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,0 +1,23 @@
+{
+  "name": "pi-md-log",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Append-only Markdown note logger for Pi coding agent sessions (user-editable notes)",
+  "keywords": ["pi-package", "pi-extension"],
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/integration.ts"
+  }
+}
