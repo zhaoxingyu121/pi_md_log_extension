@@ -301,6 +301,40 @@ async function main(): Promise<void> {
       console.log("  ✓ fork does not inherit the binding (validated by session file)");
     }
 
+    // ------------------------------------------------ /log-unbind cancels for good
+    {
+      const mgr = new FakeSessionManager(join(dir, "f.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr);
+      await controller.start(ctx);
+
+      const file = join(dir, "unbind.md");
+      await controller.bind(ctx, file);
+      mgr.appendUser("q");
+      mgr.appendAssistant("a");
+      await controller.settled(ctx);
+
+      // Unbind: stop recording and forget the path.
+      const ok = await controller.unbind(ctx);
+      assert(ok, "unbind succeeded");
+      mgr.appendUser("q2");
+      mgr.appendAssistant("a2");
+      await controller.settled(ctx);
+      let content = readFileSync(file, "utf8");
+      assert(content.includes("a") && !content.includes("a2"), "unbind stops auto-append");
+
+      // Simulate restart on the same session file: the tombstone must prevent
+      // the old binding from being restored.
+      const restarted = new LogController(makePi(mgr) as never);
+      await restarted.start(ctx);
+      mgr.appendUser("q3");
+      mgr.appendAssistant("a3");
+      await restarted.settled(ctx);
+      content = readFileSync(file, "utf8");
+      assert(!content.includes("a3"), "binding is not restored after restart");
+      console.log("  ✓ /log-unbind stops recording and survives restart (tombstone)");
+    }
+
     console.log("\nAll integration checks passed.");
   } finally {
     rmSync(dir, { recursive: true, force: true });

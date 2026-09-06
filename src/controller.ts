@@ -122,7 +122,9 @@ export class LogController {
     for (let index = path.length - 1; index >= 0; index--) {
       const entry = path[index] as StoredEntry;
       if (entry.type !== "custom" || entry.customType !== LOG_STATE_TYPE) continue;
-      const data = (entry.data ?? {}) as Partial<LogState>;
+      const data = (entry.data ?? {}) as Partial<LogState> & { unbound?: boolean };
+      // Tombstone written by /log-unbind: the binding is cancelled for good.
+      if (data.unbound === true) return undefined;
       if (typeof data.mdPath !== "string" || !data.mdPath) continue;
       // Fork/clone copies state entries into the new session file, but the
       // binding belongs to the *source* session — drop it (decision D4).
@@ -193,6 +195,34 @@ export class LogController {
       this.persistState();
       this.setStatus(ctx);
       if (ctx.hasUI) ctx.ui.notify(`已绑定 md 记录(仅记录之后的内容):${mdPath}`, "info");
+      return true;
+    });
+  }
+
+  /**
+   * /log-unbind: stop auto-append AND forget the binding (path, pointer).
+   * Writes a tombstone state entry so /resume or /reload never restore it.
+   */
+  async unbind(ctx: ExtensionContext): Promise<boolean> {
+    return this.enqueue(async () => {
+      if (!this.state) {
+        if (ctx.hasUI) ctx.ui.notify("当前会话没有 md 绑定", "warning");
+        return false;
+      }
+      const hadActive = this.state.active;
+      const mdPath = this.state.mdPath;
+      this.ctx = ctx;
+      this.pi.appendEntry(LOG_STATE_TYPE, { unbound: true, mdPath: "" });
+      this.state = undefined;
+      this.setStatus(ctx);
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          hadActive
+            ? `已取消 md 绑定并停止记录:${mdPath}`
+            : `已取消 md 绑定(此前处于暂停):${mdPath}`,
+          "info",
+        );
+      }
       return true;
     });
   }

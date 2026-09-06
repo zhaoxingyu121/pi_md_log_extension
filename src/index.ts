@@ -9,7 +9,7 @@
  *                      compaction fold blocks) to <path>. Existing files are
  *                      appended to without any scanning or deduplication; a
  *                      missing file is created with a header first.
- *   /log <path>        Alias for /log-export (bind + export convenience).
+ *   /log-unbind        Stop auto-append and forget the binding permanently.
  *
  * Behavior:
  *   - Binding lives on the session file; forks/clones never inherit it.
@@ -63,17 +63,11 @@ export default function piMdLog(pi: ExtensionAPI): void {
     },
   });
 
-  // Convenience: original "/log <path>" request = rebind target + full export.
-  pi.registerCommand("log", {
-    description: "别名:把当前分支导出到 <path>(= /log-export)",
-    handler: async (args, ctx) => {
+  pi.registerCommand("log-unbind", {
+    description: "取消本会话的 md 绑定:停止自动记录并忘记绑定文件(/resume 不再恢复)",
+    handler: async (_args, ctx) => {
       if (!controller) return;
-      const raw = args.trim();
-      if (!raw) {
-        if (ctx.hasUI) ctx.ui.notify("/log <path> 需要一个 md 文件路径", "warning");
-        return;
-      }
-      await controller.exportLog(ctx, raw);
+      await controller.unbind(ctx);
     },
   });
 }
