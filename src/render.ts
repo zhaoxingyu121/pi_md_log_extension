@@ -65,7 +65,7 @@ export function logFileHeader(sessionId: string, title: string): string {
     "",
     `# ${title}`,
     "",
-    "> 本文件由 pi-md-log 维护:插件只在文件末尾追加内容,可自由编辑、批注、删除。",
+    "> Managed by pi-md-log: the extension only appends to the end of this file. Feel free to edit, annotate, or delete anything.",
   ];
   return lines.join("\n");
 }
@@ -73,7 +73,7 @@ export function logFileHeader(sessionId: string, title: string): string {
 export function exportSegmentHeading(sessionId: string, sessionName?: string, at: Date = new Date()): string {
   const id = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
   const name = sessionName ? ` · ${sessionName}` : "";
-  return `## 📤 导出快照 · ${formatTimestamp(at)}${name} · ${id}`;
+  return `## 📤 Export snapshot · ${formatTimestamp(at)}${name} · ${id}`;
 }
 
 /** Render the appendable body for a batch of entries (path order, root -> leaf). */
@@ -108,9 +108,9 @@ export function renderEntries(entries: LogEntry[], options: LogOptions = {}): st
     }
 
     if (entry.type === "compaction") {
-      parts.push(renderFold("📌 上下文压缩", entry, entry.summary));
+      parts.push(renderFold("📌 Context compacted", entry, entry.summary));
     } else if (entry.type === "branch_summary") {
-      parts.push(renderFold("🌿 分支摘要", entry, entry.summary));
+      parts.push(renderFold("🌿 Branch summary", entry, entry.summary));
     }
     // custom / custom_message / label / model_change / thinking_level_change -> not part of notes
   }
@@ -123,7 +123,7 @@ function renderUser(entry: LogEntry, message: LogMessageLike): string {
   const time = timestampLabel(entry.timestamp, message.timestamp);
   const sections = [`## Q · ${time}`];
   if (text) sections.push(text);
-  else sections.push("_(空消息)_");
+  else sections.push("_(empty message)_");
   return sections.join("\n\n");
 }
 
@@ -138,7 +138,7 @@ function renderAssistant(
   const suffix =
     message.stopReason === "error" || message.stopReason === "aborted" ? ` · ${message.stopReason}` : "";
   if (suffix || message.errorMessage) {
-    sections.push(`> 助手响应异常${suffix}${message.errorMessage ? `: ${message.errorMessage}` : ""}`);
+    sections.push(`> Assistant response issue${suffix}${message.errorMessage ? `: ${message.errorMessage}` : ""}`);
   }
 
   const blocks: ContentBlockLike[] = Array.isArray(message.content)
@@ -153,7 +153,7 @@ function renderAssistant(
       continue;
     }
     if (block.type === "thinking" && options.includeThinking && block.thinking) {
-      sections.push(`<details>\n<summary>💭 思考过程</summary>\n\n${block.thinking.trim()}\n\n</details>`);
+      sections.push(`<details>\n<summary>💭 Thinking</summary>\n\n${block.thinking.trim()}\n\n</details>`);
       continue;
     }
     if (block.type === "toolCall") {
@@ -164,12 +164,12 @@ function renderAssistant(
     }
   }
 
-  return sections.join("\n\n") || "_(无文本内容)_";
+  return sections.join("\n\n") || "_(no text content)_";
 }
 
 function renderOrphanToolResult(message: LogMessageLike): string {
   const name = message.toolName ?? "tool";
-  return `<details>\n<summary>🔧 ${name} · 结果</summary>\n\n${renderResultContent(message)}\n\n</details>`;
+  return `<details>\n<summary>🔧 ${name} · result</summary>\n\n${renderResultContent(message)}\n\n</details>`;
 }
 
 function renderToolActivity(
@@ -180,7 +180,7 @@ function renderToolActivity(
   const summaryName = name === "bash" || name === "powershell" ? `$ ${commandFromArgs(args)}` : name;
   const sections = [`<details>`, `<summary>🔧 ${summaryName}</summary>`, "", renderArguments(name, args)];
   if (result) {
-    sections.push("", "**结果**", "", renderResultContent(result));
+    sections.push("", "**Result**", "", renderResultContent(result));
   }
   sections.push("", "</details>");
   return sections.join("\n");
@@ -188,13 +188,13 @@ function renderToolActivity(
 
 function renderResultContent(message: LogMessageLike): string {
   const text = contentText(message.content, message).trim();
-  if (!text) return "_无文本输出_";
+  if (!text) return "_no text output_";
   const cleaned = sanitizeTerminalOutput(text);
   const truncated = truncateForTranscript(cleaned);
   const notice = truncated.truncated
-    ? `\n\n> 输出过长已截断:共 ${truncated.totalLines.toLocaleString()} 行 / ${truncated.totalBytes.toLocaleString()} 字节。`
+    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines / ${truncated.totalBytes.toLocaleString()} bytes total.`
     : "";
-  const flag = message.isError ? "\n\n> 该调用返回错误。" : "";
+  const flag = message.isError ? "\n\n> This call returned an error." : "";
   return `${markdownFence(truncated.content, "text")}${notice}${flag}`;
 }
 
@@ -210,10 +210,10 @@ function renderArguments(name: string, args: unknown): string {
   if (name === "bash" || name === "powershell") {
     const record = (args ?? {}) as Record<string, unknown>;
     const command = typeof record.command === "string" ? record.command : "";
-    return `**命令**\n\n${markdownFence(truncateChars(command, 4000), name === "powershell" ? "powershell" : "bash")}`;
+    return `**Command**\n\n${markdownFence(truncateChars(command, 4000), name === "powershell" ? "powershell" : "bash")}`;
   }
   const json = args === undefined ? "{}" : compactJson(args);
-  return `**参数**\n\n${markdownFence(truncateChars(json, 4000), "json")}`;
+  return `**Arguments**\n\n${markdownFence(truncateChars(json, 4000), "json")}`;
 }
 
 function renderBashExecution(entry: LogEntry, message: LogMessageLike): string {
@@ -223,7 +223,7 @@ function renderBashExecution(entry: LogEntry, message: LogMessageLike): string {
   const cleaned = sanitizeTerminalOutput(output);
   const truncated = truncateForTranscript(cleaned);
   const notice = truncated.truncated
-    ? `\n\n> 输出过长已截断:共 ${truncated.totalLines.toLocaleString()} 行。`
+    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines total.`
     : "";
   const status = typeof message.exitCode === "number" ? ` · exit ${message.exitCode}` : "";
   return [
@@ -233,7 +233,7 @@ function renderBashExecution(entry: LogEntry, message: LogMessageLike): string {
     "",
     markdownFence(command, "bash"),
     "",
-    "**输出**",
+    "**Output**",
     "",
     `${markdownFence(truncated.content, "text")}${notice}`,
   ].join("\n");
@@ -264,7 +264,7 @@ function contentText(content: LogMessageLike["content"], message: LogMessageLike
     else if (block.type === "image") images += 1;
   }
   const text = parts.join("\n\n");
-  const note = images > 0 ? `\n\n> _(含 ${images} 张图片,已省略)_` : "";
+  const note = images > 0 ? `\n\n> _(${images} image${images > 1 ? "s" : ""} omitted)_` : "";
   return `${text}${note}`.trim();
 }
 
@@ -290,7 +290,7 @@ function compactJson(value: unknown): string {
 
 function truncateChars(value: string, max: number): string {
   if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n\n… 内容过长已截断(${value.length - max} 字符省略)…`;
+  return `${value.slice(0, max)}\n\n… content truncated (${value.length - max} chars omitted)…`;
 }
 
 function nameOf(value: unknown): string {

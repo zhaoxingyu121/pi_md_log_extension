@@ -172,7 +172,7 @@ async function main(): Promise<void> {
       const file = join(dir, "notes.md");
       mgr.appendUser("Q1");
       mgr.appendAssistant("A1");
-      mgr.appendCompaction("旧内容已压缩");
+      mgr.appendCompaction("earlier context was summarized");
       mgr.appendUser("Q2");
       mgr.appendAssistant("A2");
 
@@ -182,8 +182,8 @@ async function main(): Promise<void> {
       assert(content.includes("<!-- pi-md-log:1:session="), "file header comment present");
       assert(content.includes("Q1") && content.includes("A1"), "whole branch exported (Q1/A1)");
       assert(content.includes("Q2") && content.includes("A2"), "whole branch exported (Q2/A2)");
-      assert(content.includes("📌 上下文压缩"), "compaction fold exported");
-      assert(content.includes("旧内容已压缩"), "compaction summary exported");
+      assert(content.includes("Context compacted"), "compaction fold exported");
+      assert(content.includes("earlier context was summarized"), "compaction summary exported");
       const before = lines(file).length;
       await controller.exportLog(ctx, file);
       const after = lines(file).length;
@@ -236,16 +236,16 @@ async function main(): Promise<void> {
       await controller.bind(ctx, file);
       mgr.appendUser("q");
       mgr.appendAssistant("partial answer");
-      mgr.appendCompaction("运行中上下文被压缩");
+      mgr.appendCompaction("mid-run context was compacted");
       await controller.compacted(ctx);
       let content = readFileSync(file, "utf8");
       assert(content.includes("partial answer"), "turn prefix appended");
-      assert(content.includes("运行中上下文被压缩"), "compaction fold appended promptly");
+      assert(content.includes("mid-run context was compacted"), "compaction fold appended promptly");
       mgr.appendAssistant("final answer");
       await controller.settled(ctx);
       content = readFileSync(file, "utf8");
       assert(content.includes("final answer"), "rest of the turn appended after settle");
-      const occurrences = content.split("上下文压缩").length - 1;
+      const occurrences = content.split("Context compacted").length - 1;
       assert(occurrences === 1, "compaction fold not duplicated after settle");
       console.log("  ✓ compaction mid-turn: fold appended once, tail follows on settle");
     }

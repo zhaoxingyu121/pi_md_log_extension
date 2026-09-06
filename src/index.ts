@@ -47,7 +47,7 @@ export default function piMdLog(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("log-bind", {
-    description: "绑定本会话到 md 笔记文件并开始记录(只记之后的内容)",
+    description: "Bind this session to a Markdown notes file and start recording (only content after this point)",
     handler: async (args, ctx) => {
       if (!controller) return;
       await controller.bind(ctx, args);
@@ -55,7 +55,7 @@ export default function piMdLog(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("log-export", {
-    description: "把当前分支全部内容追加到 md 文件(存在则直接追加,不存在则新建)",
+    description: "Append the whole active branch to a Markdown file (appends to existing files, creates missing ones)",
     handler: async (args, ctx) => {
       if (!controller) return;
       const raw = args.trim();
@@ -64,7 +64,7 @@ export default function piMdLog(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("log-unbind", {
-    description: "取消本会话的 md 绑定:停止自动记录并忘记绑定文件(/resume 不再恢复)",
+    description: "Cancel this session's md binding: stop auto-recording and forget the bound file (not restored on /resume)",
     handler: async (_args, ctx) => {
       if (!controller) return;
       await controller.unbind(ctx);

@@ -109,9 +109,9 @@ export class LogController {
     this.state = restored;
     this.setStatus(ctx);
     if (restored.active) {
-      if (ctx.hasUI) ctx.ui.notify(`已恢复 md 记录:${restored.mdPath}`, "info");
+      if (ctx.hasUI) ctx.ui.notify(`Restored md log: ${restored.mdPath}`, "info");
     } else if (ctx.hasUI) {
-      ctx.ui.notify(`md-log 已恢复,处于暂停状态(/tree 切过节点)— /log-bind to rebind`, "info");
+      ctx.ui.notify("md log restored but paused (a /tree node switch paused it). Run /log-bind to rebind.", "info");
     }
   }
 
@@ -173,7 +173,7 @@ export class LogController {
   async bind(ctx: ExtensionContext, rawPath: string): Promise<boolean> {
     const mdPath = this.resolveTarget(ctx, rawPath);
     if (!mdPath) {
-      if (ctx.hasUI) ctx.ui.notify("/log-bind 需要一个 md 文件路径", "warning");
+      if (ctx.hasUI) ctx.ui.notify("/log-bind requires a Markdown file path", "warning");
       return false;
     }
     const manager = ctx.sessionManager;
@@ -194,7 +194,7 @@ export class LogController {
       await this.ensureFile(ctx, mdPath);
       this.persistState();
       this.setStatus(ctx);
-      if (ctx.hasUI) ctx.ui.notify(`已绑定 md 记录(仅记录之后的内容):${mdPath}`, "info");
+      if (ctx.hasUI) ctx.ui.notify(`Bound md log (records content after this point): ${mdPath}`, "info");
       return true;
     });
   }
@@ -206,7 +206,7 @@ export class LogController {
   async unbind(ctx: ExtensionContext): Promise<boolean> {
     return this.enqueue(async () => {
       if (!this.state) {
-        if (ctx.hasUI) ctx.ui.notify("当前会话没有 md 绑定", "warning");
+        if (ctx.hasUI) ctx.ui.notify("This session has no md log binding", "warning");
         return false;
       }
       const hadActive = this.state.active;
@@ -218,8 +218,8 @@ export class LogController {
       if (ctx.hasUI) {
         ctx.ui.notify(
           hadActive
-            ? `已取消 md 绑定并停止记录:${mdPath}`
-            : `已取消 md 绑定(此前处于暂停):${mdPath}`,
+            ? `Unbound md log and stopped recording: ${mdPath}`
+            : `Removed md log binding (it was paused): ${mdPath}`,
           "info",
         );
       }
@@ -230,17 +230,17 @@ export class LogController {
   async exportLog(ctx: ExtensionContext, rawPath: string | undefined): Promise<boolean> {
     const mdPath = this.resolveTarget(ctx, rawPath ?? this.state?.mdPath ?? "");
     if (!mdPath) {
-      if (ctx.hasUI) ctx.ui.notify("/log-export 需要一个 md 文件路径(或先 /log-bind)", "warning");
+      if (ctx.hasUI) ctx.ui.notify("/log-export requires a Markdown file path (or run /log-bind first)", "warning");
       return false;
     }
     const entries = this.currentPath(ctx);
     if (entries.length === 0) {
-      if (ctx.hasUI) ctx.ui.notify("当前会话还没有可导出的内容", "warning");
+      if (ctx.hasUI) ctx.ui.notify("This session has no content to export yet", "warning");
       return false;
     }
     const body = renderEntries(entries.map(toLogEntry), DEFAULT_LOG_OPTIONS);
     if (!body) {
-      if (ctx.hasUI) ctx.ui.notify("当前分支没有可记录的内容(工具/终端消息默认不记录)", "warning");
+      if (ctx.hasUI) ctx.ui.notify("The current branch has no recordable content (tool/terminal messages are skipped by default)", "warning");
       return false;
     }
 
@@ -258,7 +258,7 @@ export class LogController {
           this.persistState();
         }
       }
-      if (ctx.hasUI) ctx.ui.notify(`已导出到:${mdPath}`, "info");
+      if (ctx.hasUI) ctx.ui.notify(`Exported to: ${mdPath}`, "info");
       return true;
     });
   }
@@ -348,7 +348,7 @@ export class LogController {
   private title(ctx: ExtensionContext): string {
     const name = ctx.sessionManager.getSessionName();
     if (name) return name;
-    return `Pi 会话 ${ctx.sessionManager.getSessionId().slice(0, 8)}`;
+    return `Pi Session ${ctx.sessionManager.getSessionId().slice(0, 8)}`;
   }
 
   private async appendBody(mdPath: string, body: string): Promise<void> {
@@ -377,7 +377,7 @@ export class LogController {
         if (boundAt < 0) {
           state.active = false;
           this.persistState();
-          if (ctx.hasUI) ctx.ui.notify("md 记录指针失效,已暂停(/tree 后请重新 /log-bind)", "warning");
+          if (ctx.hasUI) ctx.ui.notify("md log pointer is stale; recording paused. Re-run /log-bind after /tree navigation.", "warning");
           return Promise.resolve();
         }
         start = boundAt;
