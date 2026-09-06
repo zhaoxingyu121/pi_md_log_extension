@@ -1,70 +1,92 @@
+**English** | [简体中文](./README.zh.md)
 # pi-md-log
 
-把 Pi 会话的对话内容以**追加**方式同步到 Markdown 文件, 作为**用户自己的笔记**, 追加不修改用户已编辑的内容:
-可以用 Typora / Obsidian / VS Code 等打开,公式(LaTeX)与代码围栏原样保留、可自由编辑。
+Mirrors Pi session conversation content into a Markdown file by **appending only**,
+so the file becomes **your own notes** — edits you make are never touched:
+open it in Typora / Obsidian / VS Code, and formulas (LaTeX) plus code fences
+stay intact for editing and rendering.
 
-> 与 [`pi_md_forward`](../pi_md_forward) 的区别:它把 md 当「整文件重建的转录镜像」;
-> 本插件把 md 当**用户笔记**——插件只在文件末尾追加,**绝不重写或扫描已有内容**。
-> 设计规格见 [`design-review.md`](./design-review.md)。
+> Difference from [`pi_md_forward`](https://github.com/kkast/pi_md_forward): it treats the Markdown
+> file as a *whole-file-regenerated transcript mirror*; this extension treats it
+> as *user-owned notes* — it only ever appends to the end of the file and
+> **never rewrites or scans existing content**.
 
-## 命令
+## Commands
 
-| 命令 | 语义 |
+| Command | Meaning |
 |---|---|
-| `/log-bind <path>` | 绑定本会话到 md 文件并开始自动记录。**只记录绑定之后新发生的内容,不补历史**;文件不存在则先创建(带一行头注释) |
-| `/log-export <path>` | 把当前分支全部内容(含压缩折叠块)作为一段**直接追加**;文件不存在则新建并全量写入,存在则追加到末尾。**不查重、不补齐**——重复执行会重复追加(手动命令,文件归你管理) |
-| `/log-unbind` | **取消本会话的绑定**:停止自动记录并忘记绑定文件(/resume、/reload 都不会再恢复) |
+| `/log-bind <path>` | Bind this session to a Markdown file and start auto-recording. **Records only what happens after the bind — never backfills history.** Creates the file first (with a one-line header comment) if it does not exist |
+| `/log-export <path>` | Append the entire active branch (including compaction fold blocks) as one segment. If the file is missing, it is created and written in full; if it exists, content is **appended directly**. **No deduplication, no gap filling** — repeating it appends again (manual command; the file is yours to manage) |
+| `/log-unbind` | **Cancel the binding for this session**: stop auto-recording and forget the bound file (`/resume` and `/reload` will not restore it) |
 
-> /tree「切到新节点后把整条分支写进文件并继续记录」= `/log-bind <path>` 后接 `/log-export`。
+> To "switch to a new tree node, write the whole branch into a file, and keep
+> recording" — that is `/log-bind <path>` followed by `/log-export`.
 
-路径支持 `~` 与相对路径(相对当前工作目录解析)。
+Paths support `~` and relative paths (resolved against the working directory).
 
-## 行为要点(对应设计决策)
+## Behavior highlights (design decisions)
 
-- **绑定归属 Session**:绑定状态存为 session 内 custom 条目,恢复时校验 session 文件身份。
-  - `/fork`、`/clone`、`/new` **不会继承绑定**;每个会话需手动绑定。
-  - `/resume` 同一文件、`/reload`:自动恢复绑定并继续记录。
-  - 不同会话**可以**绑定同一个 md(内容各自追加,不做跨会话去重)。
-- **/tree 切换节点**:自动暂停记录(绝不把两个分支混进同一个文件)。pi 的「Navigated to selected point」与扩展提示共用同一条状态槽位(后者覆盖前者),因此合并为两行灰色提示覆盖:第一行保留 pi 原文,第二行为 `md-log is suspended, /log-bind to rebind`。
-- **压缩(compaction)**:压缩折叠块(`> 📌 上下文压缩 …`)照常追加;旧消息仍在 JSONL 里,`/log-export` 会连同压缩前的旧消息一起导出(类似 fork 的全历史)。
-- **前向指针**:bind 模式在状态里记录「最后已追加的 entry id」,单调追加、同一内容只写一次;不扫描 md,不做补全,不写任何锚点注释。
-- **取消绑定**:`/log-unbind` 写入一个 tombstone 状态条目,之后 `/resume`、`/reload` 都不会恢复该绑定;再次 `/log-bind` 则从新指针开始(不补历史)。
-- **导出到已绑定文件后**,插件会把指针同步到当前 leaf,避免 bind/export 双重写入。
+- **Binding belongs to the Session**: binding state is stored as a custom entry
+  inside the session and validated against the session file on restore.
+  - `/fork`, `/clone`, `/new` **never inherit a binding**; bind each session manually.
+  - `/resume` of the same file and `/reload`: the binding is restored and recording continues.
+  - Different sessions **may** bind the same Markdown file (each appends its own
+    content; no cross-session deduplication).
+- **/tree node switches**: auto-recording pauses (branches are never mixed into
+  one file). Pi's "Navigated to selected point" and the extension notice share
+  the same single status slot (the later one overwrites the earlier), so the
+  combined notice deliberately replaces Pi's hint: line 1 keeps Pi's original
+  text, line 2 is `md-log is suspended, /log-bind to rebind`.
+- **Compaction**: compaction fold blocks (`> 📌 Context compacted …`) are
+  appended as usual; old messages stay in the JSONL, so `/log-export` also
+  writes the pre-compaction history (a fork-like full history).
+- **Forward pointer**: bind mode tracks "the last appended entry id" in state,
+  appends monotonically, and writes each entry exactly once. It never scans the
+  Markdown file, never backfills, and emits no anchor comments.
+- **Unbinding**: `/log-unbind` writes a tombstone state entry, so neither
+  `/resume` nor `/reload` will restore that binding; a later `/log-bind` starts
+  from a fresh pointer (no backfill).
+- **Exporting to the bound file** advances the pointer to the current leaf so
+  bind and export never double-write the same entries.
 
-## 记录内容默认值
+## Recorded content defaults
 
-- 用户消息 → `## Q · 时间` + 全文;助手回复 → 原文 Markdown(含 LaTeX)。
-- **thinking 块默认不记录**;工具调用/结果折叠为 `<details>`(默认折叠,输出过长截断);
-- `!`/`!!` 终端命令(`bashExecution`)默认不记录;
-- 图片默认省略(仅标注数量)。
+- User messages → `## Q · time` + full text; assistant replies → original
+  Markdown (LaTeX preserved).
+- **Thinking blocks are not recorded by default**; tool calls/results are folded
+  into `<details>` (collapsed by default, long output truncated).
+- `!` / `!!` terminal commands (`bashExecution`) are not recorded by default.
+- Images are omitted by default (only the count is noted).
 
-这些默认值定义在 `src/controller.ts` 的 `DEFAULT_LOG_OPTIONS`(以及 `src/render.ts` 的渲染逻辑),可自行调整。
+These defaults live in `DEFAULT_LOG_OPTIONS` in `src/controller.ts` (rendering
+logic in `src/render.ts`) and can be adjusted.
 
-## 安装试用
+## Install & try
 
 ```bash
-# 一次性试用
+# One-shot try
 pi -e ./src/index.ts
 
-# 常用:复制到项目本地自动加载(或 ~/.pi/agent/extensions/)
+# Common: copy into the project for auto-loading (or ~/.pi/agent/extensions/)
 mkdir -p .pi/extensions && cp -r src .pi/extensions/pi-md-log
 ```
 
-## 开发
+## Development
 
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # node test/integration.ts(模拟 session,验证指针/bind/export/tree/fork 语义)
+npm test            # node test/integration.ts (simulated session; verifies
+                    # pointer / bind / export / tree / fork semantics)
 ```
 
-## 文件结构
+## File layout
 
 ```
-src/index.ts        入口:事件接线 + 命令注册
-src/controller.ts   状态(绑定/指针)与追加编排
-src/render.ts       纯函数渲染(可单测)
-src/sanitize.ts     终端输出清洗/反引号围栏安全(复用自 pi_md_forward)
-src/truncate.ts     超长输出截断(复用自 pi_md_forward)
-test/integration.ts 集成语义测试
+src/index.ts        entry: event wiring + command registration
+src/controller.ts   state (binding/pointer) and append orchestration
+src/render.ts       pure-function rendering (unit-testable)
+src/sanitize.ts     terminal-output cleaning / backtick fence safety (reused from pi_md_forward)
+src/truncate.ts     long-output truncation (reused from pi_md_forward)
+test/integration.ts integration semantic tests
 ```
