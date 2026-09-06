@@ -111,7 +111,7 @@ export class LogController {
     if (restored.active) {
       if (ctx.hasUI) ctx.ui.notify(`已恢复 md 记录:${restored.mdPath}`, "info");
     } else if (ctx.hasUI) {
-      ctx.ui.notify(`md 绑定已恢复但处于暂停状态:${restored.mdPath}(/tree 切换过节点)。/log-bind 重新启用。`, "info");
+      ctx.ui.notify(`md-log 已恢复,处于暂停状态(/tree 切过节点)— /log-bind to rebind`, "info");
     }
   }
 
@@ -277,21 +277,39 @@ export class LogController {
     await this.appendSincePointer(ctx);
   }
 
-  /** session_tree: switching nodes deactivates auto-append (never mixes branches). */
+  /** session_tree: switching nodes deactivates auto-append (never mixes branches).
+   *
+   * Pi appends its own "Navigated to selected point" status line right after
+   * this event. Both this extension's notice and Pi's hint share the same
+   * single status slot (later showStatus overwrites the earlier one), so we
+   * deliberately overwrite Pi's hint with a combined two-line message after
+   * the tree overlay has closed.
+   */
   async treeChanged(ctx: ExtensionContext): Promise<void> {
     if (!this.state?.active) return;
+    const mdPath = this.state.mdPath;
     await this.enqueue(async () => {
       if (!this.state?.active) return;
       this.state.active = false;
       this.persistState();
       this.setStatus(ctx);
-      if (ctx.hasUI) {
-        ctx.ui.notify(
-          "已切换到其他节点,暂停 md 自动记录(不补历史)。继续:/log-bind <路径> 重新绑定;或 /log-export <路径> 导出当前分支。",
-          "info",
-        );
-      }
     });
+    if (ctx.hasUI) {
+      this.scheduleSuspendedNotice(ctx, mdPath, 300);
+    }
+  }
+
+  /** Replace Pi's tree hint with a combined notice once the overlay closes. */
+  private scheduleSuspendedNotice(ctx: ExtensionContext, mdPath: string, delayMs: number): void {
+    setTimeout(() => {
+      if (!this.state || this.state.mdPath !== mdPath) return; // rebound or unbound
+      if (this.state.active) return; // already resumed
+      if (!ctx.hasUI) return;
+      ctx.ui.notify(
+        "Navigated to selected point\nmd-log is suspended, /log-bind to rebind",
+        "info",
+      );
+    }, delayMs);
   }
 
   async shutdown(): Promise<void> {
@@ -345,7 +363,7 @@ export class LogController {
    */
   private appendSincePointer(ctx: ExtensionContext): Promise<void> {
     const state = this.state;
-    if (!state) return Promise.resolve();
+    if (!state || !state.active) return Promise.resolve();
     const path = this.currentPath(ctx);
 
     let start = path.findIndex((entry) => entry.id === state.lastEntryId);

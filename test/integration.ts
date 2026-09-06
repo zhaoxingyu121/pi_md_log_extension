@@ -116,16 +116,39 @@ function makePi(manager: FakeSessionManager): FakePi {
   };
 }
 
-function makeCtx(manager: FakeSessionManager): ExtensionContext {
-  return {
-    cwd: "/work",
-    hasUI: false,
-    ui: {
+interface UiSpy {
+  notifies: Array<{ text: string; level: string }>;
+  statuses: Map<string, string | undefined>;
+}
+
+function makeUi(spy?: UiSpy) {
+  if (!spy) {
+    return {
       notify: () => undefined,
       setStatus: () => undefined,
+    };
+  }
+  return {
+    notify: (text: string, level: string) => {
+      spy.notifies.push({ text, level });
     },
+    setStatus: (id: string, value: string | undefined) => {
+      spy.statuses.set(id, value);
+    },
+  };
+}
+
+function makeCtx(manager: FakeSessionManager, spy?: UiSpy): ExtensionContext {
+  return {
+    cwd: "/work",
+    hasUI: spy !== undefined,
+    ui: makeUi(spy),
     sessionManager: manager as never,
   } as unknown as ExtensionContext;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function lines(file: string): string[] {
@@ -246,6 +269,45 @@ async function main(): Promise<void> {
       const content = readFileSync(file, "utf8");
       assert(content.includes("a1") && !content.includes("a2"), "/tree pauses auto-append");
       console.log("  ✓ /tree switch pauses recording; later content not appended");
+    }
+
+    // --------------------------------- /tree shows visible pause feedback (UI)
+    {
+      const spy: UiSpy = { notifies: [], statuses: new Map() };
+      const mgr = new FakeSessionManager(join(dir, "d2.jsonl"));
+      const controller = new LogController(makePi(mgr) as never);
+      const ctx = makeCtx(mgr, spy);
+      await controller.start(ctx);
+
+      const file = join(dir, "tree-ui.md");
+      await controller.bind(ctx, file);
+      mgr.appendUser("q1");
+      mgr.appendAssistant("a1");
+      await controller.settled(ctx);
+      await controller.treeChanged(ctx);
+
+      // No persistent footer while suspended.
+      const status = spy.statuses.get("pi-md-log");
+      assert(status === undefined, "no persistent footer while suspended");
+
+      // After the tree overlay closes, Pi's own hint is deliberately replaced
+      // by a combined two-line notice (single shared status slot).
+      await sleep(600);
+      const notices = spy.notifies.filter((entry) => entry.text.includes("md-log is suspended"));
+      assert(notices.length === 1, "one combined suspended notice");
+      assert(
+        notices[0].text.includes("Navigated to selected point\nmd-log is suspended, /log-bind to rebind"),
+        "notice keeps Pi's own hint text on its first line",
+      );
+      assert(notices[0].level === "info", "notice is info/muted");
+
+      // Re-settling after that must not repeat the notice.
+      mgr.appendUser("q2");
+      mgr.appendAssistant("a2");
+      await controller.settled(ctx);
+      const again = spy.notifies.filter((entry) => entry.text.includes("md-log is suspended"));
+      assert(again.length === 1, "notice is one-shot, not repeated");
+      console.log("  ✓ /tree replaces Pi's hint with a combined two-line suspended notice");
     }
 
     // ------------------------------------------- export to bound file syncs pointer
