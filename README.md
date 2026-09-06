@@ -1,6 +1,6 @@
 # pi-md-log
 
-把 Pi 会话的对话内容以**追加**方式同步到 Markdown 文件,作为**用户自己的笔记**:
+把 Pi 会话的对话内容以**追加**方式同步到 Markdown 文件, 作为**用户自己的笔记**, 追加不修改用户已编辑的内容:
 可以用 Typora / Obsidian / VS Code 等打开,公式(LaTeX)与代码围栏原样保留、可自由编辑。
 
 > 与 [`pi_md_forward`](../pi_md_forward) 的区别:它把 md 当「整文件重建的转录镜像」;
@@ -67,5 +67,4 @@ src/render.ts       纯函数渲染(可单测)
 src/sanitize.ts     终端输出清洗/反引号围栏安全(复用自 pi_md_forward)
 src/truncate.ts     超长输出截断(复用自 pi_md_forward)
 test/integration.ts 集成语义测试
-design-review.md    设计规格(v2)
 ```
