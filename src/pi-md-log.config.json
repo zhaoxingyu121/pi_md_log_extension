@@ -1,0 +1,10 @@
+{
+  "includeThinking": false,
+  "includeBashExecution": false,
+  "outputMaxLines": 200,
+  "outputMaxBytes": 20480,
+  "outputHeadRatio": 0.4,
+  "commandMaxChars": 120,
+  "argumentsMaxChars": 4000,
+  "bashCommandMaxChars": 200
+}

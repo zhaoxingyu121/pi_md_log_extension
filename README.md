@@ -58,8 +58,27 @@ Paths support `~` and relative paths (resolved against the working directory).
 - `!` / `!!` terminal commands (`bashExecution`) are not recorded by default.
 - Images are omitted by default (only the count is noted).
 
-These defaults live in `DEFAULT_LOG_OPTIONS` in `src/controller.ts` (rendering
-logic in `src/render.ts`) and can be adjusted.
+## Settings
+
+All settings live in one file:
+
+```
+src/pi-md-log.config.json
+```
+
+Edit it and run `/reload` (or start a new session) to apply. Nothing is read
+from the environment and there is no settings command.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `includeThinking` | `false` | Record assistant thinking/reasoning blocks |
+| `includeBashExecution` | `false` | Record `!` / `!!` terminal commands |
+| `outputMaxLines` | `200` | Max lines kept from tool/terminal output |
+| `outputMaxBytes` | `20480` | Max bytes kept from tool/terminal output |
+| `outputHeadRatio` | `0.4` | Fraction of the output budget kept from the head |
+| `commandMaxChars` | `120` | Max chars for a command in a tool `<summary>` |
+| `argumentsMaxChars` | `4000` | Max chars for tool arguments / full bash command |
+| `bashCommandMaxChars` | `200` | Max chars for a command in a `bashExecution` heading |
 
 ## Install & try
 
@@ -86,6 +105,8 @@ npm test            # node test/integration.ts (simulated session; verifies
 src/index.ts        entry: event wiring + command registration
 src/controller.ts   state (binding/pointer) and append orchestration
 src/render.ts       pure-function rendering (unit-testable)
+src/config.ts       settings loader (reads pi-md-log.config.json)
+src/pi-md-log.config.json   the single place to configure the extension
 src/sanitize.ts     terminal-output cleaning / backtick fence safety (reused from pi_md_forward)
 src/truncate.ts     long-output truncation (reused from pi_md_forward)
 test/integration.ts integration semantic tests

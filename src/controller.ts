@@ -23,6 +23,7 @@ import {
   type LogMessageLike,
   type LogOptions,
 } from "./render.ts";
+import { loadLogOptions } from "./config.ts";
 
 export const LOG_STATE_TYPE = "pi-md-log-state";
 export const LOG_VERSION_HEADER = "pi-md-log:1";
@@ -52,11 +53,6 @@ interface StoredEntry {
   tokensBefore?: number;
 }
 
-const DEFAULT_LOG_OPTIONS: LogOptions = {
-  includeThinking: false,
-  includeBashExecution: false,
-};
-
 function expandHome(path: string): string {
   if (path === "~") return homedir();
   if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
@@ -83,6 +79,7 @@ export class LogController {
   private readonly pi: ExtensionAPI;
   private ctx: ExtensionContext | undefined;
   private state: LogState | undefined;
+  private options: LogOptions = loadLogOptions();
   private chain: Promise<void> = Promise.resolve();
 
   constructor(pi: ExtensionAPI) {
@@ -104,6 +101,7 @@ export class LogController {
   async start(ctx: ExtensionContext): Promise<void> {
     this.ctx = ctx;
     this.state = undefined;
+    this.options = loadLogOptions();
     const restored = this.loadState(ctx);
     if (!restored) return;
     this.state = restored;
@@ -238,7 +236,7 @@ export class LogController {
       if (ctx.hasUI) ctx.ui.notify("This session has no content to export yet", "warning");
       return false;
     }
-    const body = renderEntries(entries.map(toLogEntry), DEFAULT_LOG_OPTIONS);
+    const body = renderEntries(entries.map(toLogEntry), this.options);
     if (!body) {
       if (ctx.hasUI) ctx.ui.notify("The current branch has no recordable content (tool/terminal messages are skipped by default)", "warning");
       return false;
@@ -388,7 +386,7 @@ export class LogController {
     if (tail.length === 0) return Promise.resolve();
 
     const entries = tail.map(toLogEntry);
-    const body = renderEntries(entries, DEFAULT_LOG_OPTIONS);
+    const body = renderEntries(entries, this.options);
     const lastId = tail[tail.length - 1].id;
 
     return this.enqueue(async () => {

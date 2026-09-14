@@ -21,6 +21,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LogController, LOG_STATE_TYPE } from "../src/controller.ts";
+import { renderEntries } from "../src/render.ts";
+import { loadLogOptions, logConfigPath } from "../src/config.ts";
 
 interface StoredEntry {
   type: string;
@@ -395,6 +397,21 @@ async function main(): Promise<void> {
       content = readFileSync(file, "utf8");
       assert(!content.includes("a3"), "binding is not restored after restart");
       console.log("  ✓ /log-unbind stops recording and survives restart (tombstone)");
+    }
+
+    // -------------------------------------- configurable truncation settings
+    {
+      const options = loadLogOptions();
+      assert(options.outputMaxLines > 0 && options.outputMaxBytes > 0, "settings load from the config file");
+      assert(logConfigPath().endsWith("pi-md-log.config.json"), "settings file is easy to locate");
+
+      const long = Array.from({ length: options.outputMaxLines + 10 }, (_, index) => `line ${index}`).join("\n");
+      const body = renderEntries(
+        [{ id: "1", type: "message", message: { role: "toolResult", toolCallId: "x", content: long } }],
+        { ...options, outputMaxLines: 5 },
+      );
+      assert(body.includes("Output truncated"), "configured budget truncates tool output");
+      console.log("  ✓ truncation settings come from src/pi-md-log.config.json (no hardcoding)");
     }
 
     console.log("\nAll integration checks passed.");

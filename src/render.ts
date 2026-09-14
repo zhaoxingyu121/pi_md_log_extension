@@ -11,12 +11,33 @@
 import { markdownFence, sanitizeTerminalOutput } from "./sanitize.ts";
 import { truncateForTranscript } from "./truncate.ts";
 
+/**
+ * Rendering / truncation settings for pi-md-log.
+ *
+ * The values come from the single user-editable config file (see `config.ts`),
+ * so nothing here is hardcoded at the call sites.
+ */
 export interface LogOptions {
-  /** Record assistant thinking/reasoning blocks. Default false. */
-  includeThinking?: boolean;
-  /** Record `!` / `!!` terminal commands (bashExecution). Default false. */
-  includeBashExecution?: boolean;
+  /** Record assistant thinking/reasoning blocks. */
+  includeThinking: boolean;
+  /** Record `!` / `!!` terminal commands (bashExecution). */
+  includeBashExecution: boolean;
+  /** Max lines kept from tool / terminal output before head+tail truncation. */
+  outputMaxLines: number;
+  /** Max bytes kept from tool / terminal output before head+tail truncation. */
+  outputMaxBytes: number;
+  /** Fraction of the output budget kept from the head (0..1, tail gets the rest). */
+  outputHeadRatio: number;
+  /** Max chars for the command shown in a tool's `<summary>`. */
+  commandMaxChars: number;
+  /** Max chars for tool arguments (JSON) and the full bash command body. */
+  argumentsMaxChars: number;
+  /** Max chars for the command in a `bashExecution` heading. */
+  bashCommandMaxChars: number;
 }
+
+/** Alias kept for readability at call sites. */
+export type ResolvedLogOptions = LogOptions;
 
 export interface ContentBlockLike {
   type?: string;
@@ -77,7 +98,7 @@ export function exportSegmentHeading(sessionId: string, sessionName?: string, at
 }
 
 /** Render the appendable body for a batch of entries (path order, root -> leaf). */
-export function renderEntries(entries: LogEntry[], options: LogOptions = {}): string {
+export function renderEntries(entries: LogEntry[], options: ResolvedLogOptions): string {
   const parts: string[] = [];
 
   // Pair tool results with their calls inside this batch.
@@ -100,9 +121,9 @@ export function renderEntries(entries: LogEntry[], options: LogOptions = {}): st
         parts.push(renderAssistant(entry, message, results, consumed, options));
       } else if (role === "toolResult") {
         if (message.toolCallId && consumed.has(message.toolCallId)) continue;
-        parts.push(renderOrphanToolResult(message));
+        parts.push(renderOrphanToolResult(message, options));
       } else if (role === "bashExecution") {
-        if (options.includeBashExecution) parts.push(renderBashExecution(entry, message));
+        if (options.includeBashExecution) parts.push(renderBashExecution(entry, message, options));
       }
       continue;
     }
@@ -132,7 +153,7 @@ function renderAssistant(
   message: LogMessageLike,
   results: Map<string, LogMessageLike>,
   consumed: Set<string>,
-  options: LogOptions,
+  options: ResolvedLogOptions,
 ): string {
   const sections: string[] = [];
   const suffix =
@@ -160,37 +181,48 @@ function renderAssistant(
       const id = block.id ?? "";
       const result = id ? results.get(id) : undefined;
       if (id) consumed.add(id);
-      sections.push(renderToolActivity(block.name ?? "tool", block.arguments, result));
+      sections.push(renderToolActivity(block.name ?? "tool", block.arguments, result, options));
     }
   }
 
   return sections.join("\n\n") || "_(no text content)_";
 }
 
-function renderOrphanToolResult(message: LogMessageLike): string {
+function renderOrphanToolResult(message: LogMessageLike, options: ResolvedLogOptions): string {
   const name = message.toolName ?? "tool";
-  return `<details>\n<summary>🔧 ${name} · result</summary>\n\n${renderResultContent(message)}\n\n</details>`;
+  return `<details>\n<summary>🔧 ${name} · result</summary>\n\n${renderResultContent(message, options)}\n\n</details>`;
 }
 
 function renderToolActivity(
   name: string,
   args: unknown,
   result: LogMessageLike | undefined,
+  options: ResolvedLogOptions,
 ): string {
-  const summaryName = name === "bash" || name === "powershell" ? `$ ${commandFromArgs(args)}` : name;
-  const sections = [`<details>`, `<summary>🔧 ${summaryName}</summary>`, "", renderArguments(name, args)];
+  const summaryName =
+    name === "bash" || name === "powershell" ? `$ ${commandFromArgs(args, options.commandMaxChars)}` : name;
+  const sections = [
+    `<details>`,
+    `<summary>🔧 ${summaryName}</summary>`,
+    "",
+    renderArguments(name, args, options),
+  ];
   if (result) {
-    sections.push("", "**Result**", "", renderResultContent(result));
+    sections.push("", "**Result**", "", renderResultContent(result, options));
   }
   sections.push("", "</details>");
   return sections.join("\n");
 }
 
-function renderResultContent(message: LogMessageLike): string {
+function renderResultContent(message: LogMessageLike, options: ResolvedLogOptions): string {
   const text = contentText(message.content, message).trim();
   if (!text) return "_no text output_";
   const cleaned = sanitizeTerminalOutput(text);
-  const truncated = truncateForTranscript(cleaned);
+  const truncated = truncateForTranscript(cleaned, {
+    maxLines: options.outputMaxLines,
+    maxBytes: options.outputMaxBytes,
+    headRatio: options.outputHeadRatio,
+  });
   const notice = truncated.truncated
     ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines / ${truncated.totalBytes.toLocaleString()} bytes total.`
     : "";
@@ -198,30 +230,34 @@ function renderResultContent(message: LogMessageLike): string {
   return `${markdownFence(truncated.content, "text")}${notice}${flag}`;
 }
 
-function commandFromArgs(args: unknown): string {
+function commandFromArgs(args: unknown, maxChars: number): string {
   if (args !== null && typeof args === "object") {
     const record = args as Record<string, unknown>;
-    if (typeof record.command === "string") return truncateChars(record.command, 120);
+    if (typeof record.command === "string") return truncateChars(record.command, maxChars);
   }
   return nameOf(args);
 }
 
-function renderArguments(name: string, args: unknown): string {
+function renderArguments(name: string, args: unknown, options: ResolvedLogOptions): string {
   if (name === "bash" || name === "powershell") {
     const record = (args ?? {}) as Record<string, unknown>;
     const command = typeof record.command === "string" ? record.command : "";
-    return `**Command**\n\n${markdownFence(truncateChars(command, 4000), name === "powershell" ? "powershell" : "bash")}`;
+    return `**Command**\n\n${markdownFence(truncateChars(command, options.argumentsMaxChars), name === "powershell" ? "powershell" : "bash")}`;
   }
   const json = args === undefined ? "{}" : compactJson(args);
-  return `**Arguments**\n\n${markdownFence(truncateChars(json, 4000), "json")}`;
+  return `**Arguments**\n\n${markdownFence(truncateChars(json, options.argumentsMaxChars), "json")}`;
 }
 
-function renderBashExecution(entry: LogEntry, message: LogMessageLike): string {
+function renderBashExecution(entry: LogEntry, message: LogMessageLike, options: ResolvedLogOptions): string {
   const command = message.command ?? "";
   const output = message.output ?? "";
   const prefix = message.excludeFromContext ? "!!" : "!";
   const cleaned = sanitizeTerminalOutput(output);
-  const truncated = truncateForTranscript(cleaned);
+  const truncated = truncateForTranscript(cleaned, {
+    maxLines: options.outputMaxLines,
+    maxBytes: options.outputMaxBytes,
+    headRatio: options.outputHeadRatio,
+  });
   const notice = truncated.truncated
     ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines total.`
     : "";
@@ -229,7 +265,7 @@ function renderBashExecution(entry: LogEntry, message: LogMessageLike): string {
   return [
     "---",
     "",
-    `### \`${prefix}\` ${truncateChars(command, 200)}${status} · ${timestampLabel(entry.timestamp, message.timestamp)}`,
+    `### \`${prefix}\` ${truncateChars(command, options.bashCommandMaxChars)}${status} · ${timestampLabel(entry.timestamp, message.timestamp)}`,
     "",
     markdownFence(command, "bash"),
     "",

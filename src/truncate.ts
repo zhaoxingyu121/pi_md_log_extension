@@ -13,6 +13,11 @@ export interface TranscriptTruncationOptions {
   headRatio?: number;
 }
 
+/** Default budget for long tool/terminal output kept in a note. */
+export const DEFAULT_OUTPUT_MAX_LINES = 200;
+export const DEFAULT_OUTPUT_MAX_BYTES = 20 * 1024;
+export const DEFAULT_OUTPUT_HEAD_RATIO = 0.4;
+
 function utf8Prefix(input: string, maxBytes: number): string {
   if (Buffer.byteLength(input, "utf8") <= maxBytes) return input;
 
@@ -47,9 +52,9 @@ export function truncateForTranscript(
   input: string,
   options: TranscriptTruncationOptions = {},
 ): TranscriptTruncation {
-  const maxLines = options.maxLines ?? 200;
-  const maxBytes = options.maxBytes ?? 20 * 1024;
-  const headRatio = options.headRatio ?? 0.4;
+  const maxLines = options.maxLines ?? DEFAULT_OUTPUT_MAX_LINES;
+  const maxBytes = options.maxBytes ?? DEFAULT_OUTPUT_MAX_BYTES;
+  const headRatio = options.headRatio ?? DEFAULT_OUTPUT_HEAD_RATIO;
   const originalLines = input.split("\n");
   const totalLines = originalLines.length;
   const totalBytes = Buffer.byteLength(input, "utf8");

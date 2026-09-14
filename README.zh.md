@@ -38,7 +38,26 @@
 - `!`/`!!` 终端命令(`bashExecution`)默认不记录;
 - 图片默认省略(仅标注数量)。
 
-这些默认值定义在 `src/controller.ts` 的 `DEFAULT_LOG_OPTIONS`(以及 `src/render.ts` 的渲染逻辑),可自行调整。
+## 设置
+
+所有设置只放在一个文件里:
+
+```
+src/pi-md-log.config.json
+```
+
+改完后 `/reload`(或开新会话)生效。不读环境变量,也没有设置命令。
+
+| 键 | 默认值 | 含义 |
+|---|---|---|
+| `includeThinking` | `false` | 是否记录助手 thinking 块 |
+| `includeBashExecution` | `false` | 是否记录 `!`/`!!` 终端命令 |
+| `outputMaxLines` | `200` | 工具/终端输出保留的最大行数 |
+| `outputMaxBytes` | `20480` | 工具/终端输出保留的最大字节数 |
+| `outputHeadRatio` | `0.4` | 输出预算中头部保留比例 |
+| `commandMaxChars` | `120` | 工具 `<summary>` 里命令的最大字符数 |
+| `argumentsMaxChars` | `4000` | 工具参数/完整 bash 命令的最大字符数 |
+| `bashCommandMaxChars` | `200` | `bashExecution` 标题里命令的最大字符数 |
 
 ## 安装试用
 
@@ -64,6 +83,8 @@ npm test            # node test/integration.ts(模拟 session,验证指针/bind/
 src/index.ts        入口:事件接线 + 命令注册
 src/controller.ts   状态(绑定/指针)与追加编排
 src/render.ts       纯函数渲染(可单测)
+src/config.ts       设置加载(读取 pi-md-log.config.json)
+src/pi-md-log.config.json   唯一需要修改的设置文件
 src/sanitize.ts     终端输出清洗/反引号围栏安全(复用自 pi_md_forward)
 src/truncate.ts     超长输出截断(复用自 pi_md_forward)
 test/integration.ts 集成语义测试
