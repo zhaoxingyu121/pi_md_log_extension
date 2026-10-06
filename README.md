@@ -53,8 +53,12 @@ Paths support `~` and relative paths (resolved against the working directory).
 
 - User messages → `## Q · time` + full text; assistant replies → original
   Markdown (LaTeX preserved).
-- **Thinking blocks are not recorded by default**; tool calls/results are folded
-  into `<details>` (collapsed by default, long output truncated).
+- **Thinking blocks are not recorded by default**; tool calls/results are
+  folded into collapsible blocks — HTML `<details>` by default, or Obsidian
+  foldable callouts when `foldStyle` is `"obsidian"`. Short arguments are
+  merged into the summary (e.g. `read src/render.ts:10-60`), while long or
+  multiline arguments and the result stay in the collapsed body. Long output
+  is truncated.
 - `!` / `!!` terminal commands (`bashExecution`) are not recorded by default.
 - Images are omitted by default (only the count is noted).
 
@@ -79,6 +83,7 @@ from the environment and there is no settings command.
 | `commandMaxChars` | `120` | Max chars for a command in a tool `<summary>` |
 | `argumentsMaxChars` | `4000` | Max chars for tool arguments / full bash command |
 | `bashCommandMaxChars` | `200` | Max chars for a command in a `bashExecution` heading |
+| `foldStyle` | `"obsidian"` | Collapsible syntax: `"details"` (`<details>`) or `"obsidian"` (foldable `> [!note]-` callouts) |
 
 ## Install & try
 

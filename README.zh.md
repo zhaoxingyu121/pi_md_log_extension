@@ -34,7 +34,7 @@
 ## 记录内容默认值
 
 - 用户消息 → `## Q · 时间` + 全文;助手回复 → 原文 Markdown(含 LaTeX)。
-- **thinking 块默认不记录**;工具调用/结果折叠为 `<details>`(默认折叠,输出过长截断);
+- **thinking 块默认不记录**;工具调用/结果折叠为可折叠块(默认 `<details>`;`foldStyle` 设为 `"obsidian"` 时用 Obsidian 可折叠 callout)。短参数合并进 summary(如 `read src/render.ts:10-60`),过长/多行参数与结果留在折叠内容中;输出过长截断。
 - `!`/`!!` 终端命令(`bashExecution`)默认不记录;
 - 图片默认省略(仅标注数量)。
 
@@ -58,6 +58,7 @@ src/pi-md-log.config.json
 | `commandMaxChars` | `120` | 工具 `<summary>` 里命令的最大字符数 |
 | `argumentsMaxChars` | `4000` | 工具参数/完整 bash 命令的最大字符数 |
 | `bashCommandMaxChars` | `200` | `bashExecution` 标题里命令的最大字符数 |
+| `foldStyle` | `"obsidian"` | 折叠语法:`"details"`(`<details>`)或 `"obsidian"`(`> [!note]-` 可折叠 callout) |
 
 ## 安装试用
 

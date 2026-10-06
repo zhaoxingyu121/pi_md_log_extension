@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LogController, LOG_STATE_TYPE } from "../src/controller.ts";
-import { renderEntries } from "../src/render.ts";
+import { renderEntries, type LogOptions } from "../src/render.ts";
 import { loadLogOptions, logConfigPath } from "../src/config.ts";
 
 interface StoredEntry {
@@ -397,6 +397,73 @@ async function main(): Promise<void> {
       content = readFileSync(file, "utf8");
       assert(!content.includes("a3"), "binding is not restored after restart");
       console.log("  ✓ /log-unbind stops recording and survives restart (tombstone)");
+    }
+
+    // --------------------------------- tool rendering: de-duplicated summaries
+    {
+      const base: LogOptions = { ...loadLogOptions(), foldStyle: "details" };
+      const body = renderEntries(
+        [
+          {
+            id: "a1",
+            type: "message",
+            message: {
+              role: "assistant",
+              content: [
+                { type: "toolCall", id: "c1", name: "read", arguments: { path: "src/render.ts", offset: 10, limit: 50 } },
+                { type: "toolCall", id: "c2", name: "write", arguments: { path: "src/foo.ts", content: "export const x = 1;\n" } },
+                { type: "toolCall", id: "c3", name: "edit", arguments: { path: "src/foo.ts", edits: [{ oldText: "a", newText: "b" }] } },
+                { type: "toolCall", id: "c4", name: "bash", arguments: { command: "echo one\necho two" } },
+              ],
+            },
+          },
+          { id: "r1", type: "message", message: { role: "toolResult", toolCallId: "c1", toolName: "read", content: "line 10\nline 11" } },
+          { id: "r2", type: "message", message: { role: "toolResult", toolCallId: "c2", toolName: "write", content: "ok" } },
+          { id: "r3", type: "message", message: { role: "toolResult", toolCallId: "c3", toolName: "edit", content: "ok" } },
+          { id: "r4", type: "message", message: { role: "toolResult", toolCallId: "c4", toolName: "bash", content: "one\ntwo" } },
+        ],
+        base,
+      );
+
+      assert(body.includes("<summary>🔧 read src/render.ts:10-60</summary>"), "read folds offset/limit into a range summary");
+      assert(!body.includes('"offset"') && !body.includes('"limit"'), "read offset/limit not dumped as arguments");
+      assert(body.includes("<summary>🔧 write src/foo.ts</summary>"), "write path is in the summary");
+      assert(body.includes("**Content**") && body.includes("export const x = 1;"), "write content is folded");
+      assert(body.includes("<summary>🔧 edit src/foo.ts</summary>"), "edit path is in the summary");
+      assert(body.includes("**Old**") && body.includes("**New**"), "edit old/new text is folded");
+      assert(body.includes("<summary>🔧 bash</summary>"), "multiline bash command folds to the bare tool name");
+      assert(body.includes("**Command**") && body.includes("echo one\necho two"), "multiline bash command is folded");
+
+      const open = body.indexOf("<details>");
+      const close = body.indexOf("</details>");
+      const result = body.indexOf("**Result**");
+      assert(open >= 0 && result > open && result < close, "result stays hidden inside the fold");
+      console.log("  ✓ tool render: read range; write/edit path in summary, long/multiline args folded; result hidden");
+    }
+
+    // ---------------------------------------- Obsidian fold style (callouts)
+    {
+      const obsidian: LogOptions = { ...loadLogOptions(), foldStyle: "obsidian" };
+      const body = renderEntries(
+        [
+          {
+            id: "a1",
+            type: "message",
+            message: {
+              role: "assistant",
+              content: [
+                { type: "toolCall", id: "c1", name: "read", arguments: { path: "a/b.ts", offset: 1, limit: 5 } },
+              ],
+            },
+          },
+          { id: "r1", type: "message", message: { role: "toolResult", toolCallId: "c1", toolName: "read", content: "one\ntwo" } },
+        ],
+        obsidian,
+      );
+      assert(body.includes("> [!note]- 🔧 read a/b.ts:1-6"), "obsidian mode uses a foldable callout title");
+      assert(!body.includes("<details>") && !body.includes("<summary>"), "obsidian mode never emits <details>");
+      assert(body.includes("> **Result**") && body.includes("> ``"), "callout body lines are quoted");
+      console.log("  ✓ obsidian mode: callout folds, no <details> tags");
     }
 
     // -------------------------------------- configurable truncation settings

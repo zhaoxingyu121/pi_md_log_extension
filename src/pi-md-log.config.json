@@ -1,10 +1,11 @@
 {
   "includeThinking": false,
   "includeBashExecution": false,
-  "outputMaxLines": 200,
-  "outputMaxBytes": 20480,
+  "outputMaxLines": 50,
+  "outputMaxBytes": 5120,
   "outputHeadRatio": 0.4,
   "commandMaxChars": 120,
   "argumentsMaxChars": 4000,
-  "bashCommandMaxChars": 200
+  "bashCommandMaxChars": 200,
+  "foldStyle": "obsidian"
 }

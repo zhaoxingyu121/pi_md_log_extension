@@ -31,6 +31,7 @@ const FALLBACK_LOG_OPTIONS: LogOptions = {
   commandMaxChars: 120,
   argumentsMaxChars: 4000,
   bashCommandMaxChars: 200,
+  foldStyle: "obsidian",
 };
 
 /** Read the settings file, falling back to defaults if it cannot be parsed. */
@@ -38,7 +39,11 @@ export function loadLogOptions(): LogOptions {
   try {
     const parsed: unknown = JSON.parse(readFileSync(logConfigPath(), "utf8"));
     if (parsed && typeof parsed === "object") {
-      return { ...FALLBACK_LOG_OPTIONS, ...(parsed as Partial<LogOptions>) };
+      const merged = { ...FALLBACK_LOG_OPTIONS, ...(parsed as Partial<LogOptions>) };
+      if (merged.foldStyle !== "details" && merged.foldStyle !== "obsidian") {
+        merged.foldStyle = FALLBACK_LOG_OPTIONS.foldStyle;
+      }
+      return merged;
     }
   } catch {
     // Missing / invalid JSON: fall through to defaults.

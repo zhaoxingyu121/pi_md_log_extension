@@ -3,7 +3,9 @@
  *
  * Produces *user-editable notes*: assistant text is passed through as Markdown
  * (including LaTeX), thinking blocks are excluded by default, tool activity is
- * collapsed into `<details>`, and compaction/branch summaries become blockquotes.
+ * collapsed into a fold (`<details>` or an Obsidian callout, per `foldStyle`),
+ * short tool arguments are merged into the fold summary, and compaction/branch
+ * summaries become blockquotes.
  *
  * No per-unit anchor comments are emitted: this file may be edited freely and
  * the extension only ever appends.
@@ -17,6 +19,9 @@ import { truncateForTranscript } from "./truncate.ts";
  * The values come from the single user-editable config file (see `config.ts`),
  * so nothing here is hardcoded at the call sites.
  */
+/** Collapsible block syntax: HTML `<details>` or Obsidian callouts. */
+export type FoldStyle = "details" | "obsidian";
+
 export interface LogOptions {
   /** Record assistant thinking/reasoning blocks. */
   includeThinking: boolean;
@@ -34,6 +39,8 @@ export interface LogOptions {
   argumentsMaxChars: number;
   /** Max chars for the command in a `bashExecution` heading. */
   bashCommandMaxChars: number;
+  /** Collapsible block syntax: HTML `<details>` or Obsidian callouts. */
+  foldStyle: FoldStyle;
 }
 
 /** Alias kept for readability at call sites. */
@@ -174,7 +181,7 @@ function renderAssistant(
       continue;
     }
     if (block.type === "thinking" && options.includeThinking && block.thinking) {
-      sections.push(`<details>\n<summary>💭 Thinking</summary>\n\n${block.thinking.trim()}\n\n</details>`);
+      sections.push(renderFoldBlock("💭 Thinking", block.thinking.trim(), options.foldStyle));
       continue;
     }
     if (block.type === "toolCall") {
@@ -190,7 +197,14 @@ function renderAssistant(
 
 function renderOrphanToolResult(message: LogMessageLike, options: ResolvedLogOptions): string {
   const name = message.toolName ?? "tool";
-  return `<details>\n<summary>🔧 ${name} · result</summary>\n\n${renderResultContent(message, options)}\n\n</details>`;
+  return renderFoldBlock(`🔧 ${name} · result`, renderResultContent(message, options), options.foldStyle);
+}
+
+interface ToolDisplay {
+  /** Summary text shown next to the tool name (already includes the tool name). */
+  label: string;
+  /** Argument sections folded into the collapsible body. */
+  sections: string[];
 }
 
 function renderToolActivity(
@@ -199,19 +213,11 @@ function renderToolActivity(
   result: LogMessageLike | undefined,
   options: ResolvedLogOptions,
 ): string {
-  const summaryName =
-    name === "bash" || name === "powershell" ? `$ ${commandFromArgs(args, options.commandMaxChars)}` : name;
-  const sections = [
-    `<details>`,
-    `<summary>🔧 ${summaryName}</summary>`,
-    "",
-    renderArguments(name, args, options),
-  ];
-  if (result) {
-    sections.push("", "**Result**", "", renderResultContent(result, options));
-  }
-  sections.push("", "</details>");
-  return sections.join("\n");
+  const display = describeToolCall(name, args, options);
+  const body = [...display.sections];
+  if (result) body.push(`**Result**\n\n${renderResultContent(result, options)}`);
+  const content = body.join("\n\n") || "_no arguments or output_";
+  return renderFoldBlock(`🔧 ${display.label}`, content, options.foldStyle);
 }
 
 function renderResultContent(message: LogMessageLike, options: ResolvedLogOptions): string {
@@ -230,22 +236,221 @@ function renderResultContent(message: LogMessageLike, options: ResolvedLogOption
   return `${markdownFence(truncated.content, "text")}${notice}${flag}`;
 }
 
-function commandFromArgs(args: unknown, maxChars: number): string {
-  if (args !== null && typeof args === "object") {
-    const record = args as Record<string, unknown>;
-    if (typeof record.command === "string") return truncateChars(record.command, maxChars);
+function describeToolCall(name: string, args: unknown, options: ResolvedLogOptions): ToolDisplay {
+  const record = asRecord(args);
+  switch (name) {
+    case "read":
+      return describeRead(record);
+    case "write":
+      return describeWrite(record, options);
+    case "edit":
+      return describeEdit(record, options);
+    case "bash":
+    case "powershell":
+      return describeShell(name, record, options);
+    default:
+      return describeGeneric(name, record, options);
   }
-  return nameOf(args);
 }
 
-function renderArguments(name: string, args: unknown, options: ResolvedLogOptions): string {
-  if (name === "bash" || name === "powershell") {
-    const record = (args ?? {}) as Record<string, unknown>;
-    const command = typeof record.command === "string" ? record.command : "";
-    return `**Command**\n\n${markdownFence(truncateChars(command, options.argumentsMaxChars), name === "powershell" ? "powershell" : "bash")}`;
+/** `read <path>:<start>-<end>`; offset/limit are folded into a line range. */
+function describeRead(record: Record<string, unknown>): ToolDisplay {
+  const path = pathOf(record);
+  if (!path) return { label: "read", sections: [] };
+  const offset = numberOrUndefined(record.offset);
+  const limit = numberOrUndefined(record.limit);
+  let range = "";
+  if (offset !== undefined || limit !== undefined) {
+    const start = offset ?? 1;
+    const end = limit !== undefined ? start + limit : "";
+    range = `:${start}${end === "" ? "-" : `-${end}`}`;
   }
-  const json = args === undefined ? "{}" : compactJson(args);
-  return `**Arguments**\n\n${markdownFence(truncateChars(json, options.argumentsMaxChars), "json")}`;
+  return { label: `read ${path}${range}`, sections: [] };
+}
+
+/** `write <path>` in the summary, file content folded with a language fence. */
+function describeWrite(record: Record<string, unknown>, options: ResolvedLogOptions): ToolDisplay {
+  const path = pathOf(record);
+  const content = textOf(record.content);
+  const label = path ? `write ${path}` : "write";
+  if (content === undefined) return { label, sections: [] };
+  return {
+    label,
+    sections: [
+      `**Content**\n\n${markdownFence(truncateChars(content, options.argumentsMaxChars), fenceLanguageForPath(path))}`,
+    ],
+  };
+}
+
+/** `edit <path>` in the summary, each edit's old/new text folded. */
+function describeEdit(record: Record<string, unknown>, options: ResolvedLogOptions): ToolDisplay {
+  const path = pathOf(record);
+  const label = path ? `edit ${path}` : "edit";
+  const language = fenceLanguageForPath(path);
+  const rawEdits = Array.isArray(record.edits) ? record.edits : [];
+  const sections: string[] = [];
+
+  for (const [index, rawEdit] of rawEdits.entries()) {
+    const edit = asRecord(rawEdit);
+    const oldText = textOf(edit.oldText);
+    const newText = textOf(edit.newText);
+    const parts: string[] = [];
+    if (rawEdits.length > 1) parts.push(`**Edit ${index + 1}**`);
+    if (oldText !== undefined) {
+      parts.push(`**Old**\n\n${markdownFence(truncateChars(oldText, options.argumentsMaxChars), language)}`);
+    }
+    if (newText !== undefined) {
+      parts.push(`**New**\n\n${markdownFence(truncateChars(newText, options.argumentsMaxChars), language)}`);
+    }
+    if (parts.length > 0) sections.push(parts.join("\n\n"));
+  }
+
+  return { label, sections };
+}
+
+/** Inline a short single-line shell command; fold long/multiline commands. */
+function describeShell(name: string, record: Record<string, unknown>, options: ResolvedLogOptions): ToolDisplay {
+  const command = textOf(record.command) ?? "";
+  if (command === "") return { label: name, sections: [] };
+  if (!command.includes("\n") && command.length <= options.commandMaxChars) {
+    return { label: `$ ${command}`, sections: [] };
+  }
+  const language = name === "powershell" ? "powershell" : "bash";
+  return {
+    label: name,
+    sections: [`**Command**\n\n${markdownFence(truncateChars(command, options.argumentsMaxChars), language)}`],
+  };
+}
+
+/**
+ * Fallback for other tools (grep/find/ls/...): inline a short, single-line
+ * description in the summary; fold anything long or multiline.
+ */
+function describeGeneric(name: string, record: Record<string, unknown>, options: ResolvedLogOptions): ToolDisplay {
+  if (Object.keys(record).length === 0) return { label: name, sections: [] };
+  const compact = singleLineJson(record);
+  if (compact.length <= options.commandMaxChars && !hasMultilineText(record)) {
+    return { label: `${name} ${inlineArgsSummary(record)}`.trim(), sections: [] };
+  }
+  return {
+    label: name,
+    sections: [
+      `**Arguments**\n\n${markdownFence(truncateChars(compactJson(record), options.argumentsMaxChars), "json")}`,
+    ],
+  };
+}
+
+/** True when any string anywhere in the value contains a newline. */
+function hasMultilineText(value: unknown): boolean {
+  if (typeof value === "string") return value.includes("\n");
+  if (Array.isArray(value)) return value.some(hasMultilineText);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(hasMultilineText);
+  }
+  return false;
+}
+
+function inlineArgsSummary(record: Record<string, unknown>): string {
+  const pattern = textOf(record.pattern);
+  if (pattern !== undefined) {
+    const scope = textOf(record.path);
+    return `/${pattern}/${scope ? ` in ${scope}` : ""}`;
+  }
+  for (const key of ["path", "file_path", "filePath", "command", "query", "url", "name", "glob"]) {
+    const value = textOf(record[key]);
+    if (value !== undefined) return value;
+  }
+  return singleLineJson(record);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function pathOf(record: Record<string, unknown>): string | undefined {
+  return textOf(record.path) ?? textOf(record.file_path) ?? textOf(record.filePath);
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function singleLineJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+const EXTENSION_LANGUAGES: Record<string, string> = {
+  ts: "typescript",
+  tsx: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  hpp: "cpp",
+  cs: "csharp",
+  php: "php",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  fish: "fish",
+  sql: "sql",
+  html: "html",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  xml: "xml",
+  md: "markdown",
+  markdown: "markdown",
+};
+
+function fenceLanguageForPath(path: string | undefined): string {
+  if (!path) return "";
+  const base = path.split(/[\\/]/).pop() ?? "";
+  if (base.toLowerCase() === "dockerfile") return "dockerfile";
+  if (!base.includes(".")) return "";
+  const extension = base.split(".").pop()?.toLowerCase() ?? "";
+  return EXTENSION_LANGUAGES[extension] ?? "";
+}
+
+/**
+ * Render a collapsible block. `details` uses HTML `<details>`; `obsidian` uses
+ * a foldable callout (`> [!note]- Title`) with every body line quoted.
+ */
+function renderFoldBlock(title: string, body: string, style: FoldStyle): string {
+  const normalized = body.trim();
+  if (style === "obsidian") {
+    const quoted = normalized
+      .split("\n")
+      .map((line) => (line.length > 0 ? `> ${line}` : ">"))
+      .join("\n");
+    return `> [!note]- ${title}\n${quoted}`;
+  }
+  return `<details>\n<summary>${title}</summary>\n\n${normalized}\n\n</details>`;
 }
 
 function renderBashExecution(entry: LogEntry, message: LogMessageLike, options: ResolvedLogOptions): string {
@@ -327,10 +532,4 @@ function compactJson(value: unknown): string {
 function truncateChars(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}\n\n… content truncated (${value.length - max} chars omitted)…`;
-}
-
-function nameOf(value: unknown): string {
-  return typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean"
-    ? String(value)
-    : JSON.stringify(value);
 }
