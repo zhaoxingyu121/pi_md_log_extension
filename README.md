@@ -11,6 +11,9 @@ stay intact for editing and rendering.
 > as *user-owned notes* — it only ever appends to the end of the file and
 > **never rewrites or scans existing content**.
 
+## Rendered Result in Obsidian
+![alt text](image.png)
+
 ## Commands
 
 | Command | Meaning |

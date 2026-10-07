@@ -7,6 +7,10 @@
 > 与 [`pi_md_forward`](https://github.com/kkast/pi_md_forward) 的区别:它把 md 当「整文件重建的转录镜像」;
 > 本插件把 md 当**用户笔记**——插件只在文件末尾追加,**绝不重写或扫描已有内容**。
 
+## 效果图
+
+![alt text](image.png)
+
 ## 命令
 
 | 命令 | 语义 |
