@@ -469,7 +469,7 @@ async function main(): Promise<void> {
     // -------------------------------------- configurable truncation settings
     {
       const options = loadLogOptions();
-      assert(options.outputMaxLines > 0 && options.outputMaxBytes > 0, "settings load from the config file");
+      assert(options.outputMaxLines > 0 && options.outputMaxChars > 0, "settings load from the config file");
       assert(logConfigPath().endsWith("pi-md-log.config.json"), "settings file is easy to locate");
 
       const long = Array.from({ length: options.outputMaxLines + 10 }, (_, index) => `line ${index}`).join("\n");
@@ -479,6 +479,43 @@ async function main(): Promise<void> {
       );
       assert(body.includes("Output truncated"), "configured budget truncates tool output");
       console.log("  ✓ truncation settings come from src/pi-md-log.config.json (no hardcoding)");
+    }
+
+    // -------------------- unified head+tail truncation for args and results
+    {
+      const opts: LogOptions = {
+        ...loadLogOptions(),
+        outputMaxLines: 100,
+        outputMaxChars: 120,
+        foldStyle: "details",
+      };
+      const longText = Array.from(
+        { length: 40 },
+        (_, index) => `line-${String(index).padStart(2, "0")}-${"x".repeat(20)}`,
+      ).join("\n");
+
+      const resultBody = renderEntries(
+        [{ id: "r1", type: "message", message: { role: "toolResult", toolCallId: "x", toolName: "bash", content: longText } }],
+        opts,
+      );
+      const argBody = renderEntries(
+        [{
+          id: "a1",
+          type: "message",
+          message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "write", arguments: { path: "x.py", content: longText } }] },
+        }],
+        opts,
+      );
+
+      for (const [label, body] of [
+        ["result", resultBody],
+        ["arguments", argBody],
+      ] as const) {
+        assert(body.includes("middle of text omitted"), `${label} is truncated by the shared char budget`);
+        assert(body.includes("line-00") && body.includes("line-39"), `${label} keeps head and tail`);
+        assert(!body.includes("line-20"), `${label} drops the middle`);
+      }
+      console.log("  ✓ unified truncation: same line+char head+tail budget for arguments and results");
     }
 
     console.log("\nAll integration checks passed.");

@@ -60,8 +60,9 @@ Paths support `~` and relative paths (resolved against the working directory).
   folded into collapsible blocks — HTML `<details>` by default, or Obsidian
   foldable callouts when `foldStyle` is `"obsidian"`. Short arguments are
   merged into the summary (e.g. `read src/render.ts:10-60`), while long or
-  multiline arguments and the result stay in the collapsed body. Long output
-  is truncated.
+  multiline arguments and the result stay in the collapsed body. Arguments and
+  results share the same head+tail truncation budget (`outputMaxLines` +
+  `outputMaxChars`).
 - `!` / `!!` terminal commands (`bashExecution`) are not recorded by default.
 - Images are omitted by default (only the count is noted).
 
@@ -80,11 +81,10 @@ from the environment and there is no settings command.
 |---|---|---|
 | `includeThinking` | `false` | Record assistant thinking/reasoning blocks |
 | `includeBashExecution` | `false` | Record `!` / `!!` terminal commands |
-| `outputMaxLines` | `200` | Max lines kept from tool/terminal output |
-| `outputMaxBytes` | `20480` | Max bytes kept from tool/terminal output |
-| `outputHeadRatio` | `0.4` | Fraction of the output budget kept from the head |
-| `commandMaxChars` | `120` | Max chars for a command in a tool `<summary>` |
-| `argumentsMaxChars` | `4000` | Max chars for tool arguments / full bash command |
+| `outputMaxLines` | `50` | Max lines kept from tool arguments/results before head+tail truncation |
+| `outputMaxChars` | `4000` | Max chars kept from tool arguments/results before head+tail truncation |
+| `outputHeadRatio` | `0.4` | Fraction of the truncation budget kept from the head (tail gets the rest) |
+| `commandMaxChars` | `120` | Max chars of a command/argument before it is folded instead of inlined |
 | `bashCommandMaxChars` | `200` | Max chars for a command in a `bashExecution` heading |
 | `foldStyle` | `"obsidian"` | Collapsible syntax: `"details"` (`<details>`) or `"obsidian"` (foldable `> [!note]-` callouts) |
 

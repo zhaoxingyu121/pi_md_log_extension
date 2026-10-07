@@ -26,10 +26,9 @@ const FALLBACK_LOG_OPTIONS: LogOptions = {
   includeThinking: false,
   includeBashExecution: false,
   outputMaxLines: 200,
-  outputMaxBytes: 20480,
+  outputMaxChars: 20_000,
   outputHeadRatio: 0.4,
   commandMaxChars: 120,
-  argumentsMaxChars: 4000,
   bashCommandMaxChars: 200,
   foldStyle: "obsidian",
 };

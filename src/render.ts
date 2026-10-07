@@ -11,7 +11,7 @@
  * the extension only ever appends.
  */
 import { markdownFence, sanitizeTerminalOutput } from "./sanitize.ts";
-import { truncateForTranscript } from "./truncate.ts";
+import { truncateText } from "./truncate.ts";
 
 /**
  * Rendering / truncation settings for pi-md-log.
@@ -27,16 +27,14 @@ export interface LogOptions {
   includeThinking: boolean;
   /** Record `!` / `!!` terminal commands (bashExecution). */
   includeBashExecution: boolean;
-  /** Max lines kept from tool / terminal output before head+tail truncation. */
+  /** Max lines kept from tool arguments / results before head+tail truncation. */
   outputMaxLines: number;
-  /** Max bytes kept from tool / terminal output before head+tail truncation. */
-  outputMaxBytes: number;
-  /** Fraction of the output budget kept from the head (0..1, tail gets the rest). */
+  /** Max chars kept from tool arguments / results before head+tail truncation. */
+  outputMaxChars: number;
+  /** Fraction of the truncation budget kept from the head (0..1, tail gets the rest). */
   outputHeadRatio: number;
-  /** Max chars for the command shown in a tool's `<summary>`. */
+  /** Max chars of a command/argument before it is folded instead of inlined. */
   commandMaxChars: number;
-  /** Max chars for tool arguments (JSON) and the full bash command body. */
-  argumentsMaxChars: number;
   /** Max chars for the command in a `bashExecution` heading. */
   bashCommandMaxChars: number;
   /** Collapsible block syntax: HTML `<details>` or Obsidian callouts. */
@@ -224,13 +222,13 @@ function renderResultContent(message: LogMessageLike, options: ResolvedLogOption
   const text = contentText(message.content, message).trim();
   if (!text) return "_no text output_";
   const cleaned = sanitizeTerminalOutput(text);
-  const truncated = truncateForTranscript(cleaned, {
+  const truncated = truncateText(cleaned, {
     maxLines: options.outputMaxLines,
-    maxBytes: options.outputMaxBytes,
+    maxChars: options.outputMaxChars,
     headRatio: options.outputHeadRatio,
   });
   const notice = truncated.truncated
-    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines / ${truncated.totalBytes.toLocaleString()} bytes total.`
+    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines / ${truncated.totalChars.toLocaleString()} chars total.`
     : "";
   const flag = message.isError ? "\n\n> This call returned an error." : "";
   return `${markdownFence(truncated.content, "text")}${notice}${flag}`;
@@ -277,7 +275,7 @@ function describeWrite(record: Record<string, unknown>, options: ResolvedLogOpti
   return {
     label,
     sections: [
-      `**Content**\n\n${markdownFence(truncateChars(content, options.argumentsMaxChars), fenceLanguageForPath(path))}`,
+      `**Content**\n\n${markdownFence(truncateForNote(content, options), fenceLanguageForPath(path))}`,
     ],
   };
 }
@@ -297,10 +295,10 @@ function describeEdit(record: Record<string, unknown>, options: ResolvedLogOptio
     const parts: string[] = [];
     if (rawEdits.length > 1) parts.push(`**Edit ${index + 1}**`);
     if (oldText !== undefined) {
-      parts.push(`**Old**\n\n${markdownFence(truncateChars(oldText, options.argumentsMaxChars), language)}`);
+      parts.push(`**Old**\n\n${markdownFence(truncateForNote(oldText, options), language)}`);
     }
     if (newText !== undefined) {
-      parts.push(`**New**\n\n${markdownFence(truncateChars(newText, options.argumentsMaxChars), language)}`);
+      parts.push(`**New**\n\n${markdownFence(truncateForNote(newText, options), language)}`);
     }
     if (parts.length > 0) sections.push(parts.join("\n\n"));
   }
@@ -318,7 +316,7 @@ function describeShell(name: string, record: Record<string, unknown>, options: R
   const language = name === "powershell" ? "powershell" : "bash";
   return {
     label: name,
-    sections: [`**Command**\n\n${markdownFence(truncateChars(command, options.argumentsMaxChars), language)}`],
+    sections: [`**Command**\n\n${markdownFence(truncateForNote(command, options), language)}`],
   };
 }
 
@@ -335,7 +333,7 @@ function describeGeneric(name: string, record: Record<string, unknown>, options:
   return {
     label: name,
     sections: [
-      `**Arguments**\n\n${markdownFence(truncateChars(compactJson(record), options.argumentsMaxChars), "json")}`,
+      `**Arguments**\n\n${markdownFence(truncateForNote(compactJson(record), options), "json")}`,
     ],
   };
 }
@@ -458,13 +456,13 @@ function renderBashExecution(entry: LogEntry, message: LogMessageLike, options: 
   const output = message.output ?? "";
   const prefix = message.excludeFromContext ? "!!" : "!";
   const cleaned = sanitizeTerminalOutput(output);
-  const truncated = truncateForTranscript(cleaned, {
+  const truncated = truncateText(cleaned, {
     maxLines: options.outputMaxLines,
-    maxBytes: options.outputMaxBytes,
+    maxChars: options.outputMaxChars,
     headRatio: options.outputHeadRatio,
   });
   const notice = truncated.truncated
-    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines total.`
+    ? `\n\n> Output truncated: ${truncated.totalLines.toLocaleString()} lines / ${truncated.totalChars.toLocaleString()} chars total.`
     : "";
   const status = typeof message.exitCode === "number" ? ` · exit ${message.exitCode}` : "";
   return [
@@ -529,7 +527,16 @@ function compactJson(value: unknown): string {
   }
 }
 
+/** Tool arguments use the same head+tail budget as tool results. */
+function truncateForNote(value: string, options: ResolvedLogOptions): string {
+  return truncateText(value, {
+    maxLines: options.outputMaxLines,
+    maxChars: options.outputMaxChars,
+    headRatio: options.outputHeadRatio,
+  }).content;
+}
+
 function truncateChars(value: string, max: number): string {
   if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n\n… content truncated (${value.length - max} chars omitted)…`;
+  return `${value.slice(0, max)}…`;
 }

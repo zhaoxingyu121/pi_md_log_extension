@@ -38,7 +38,7 @@
 ## 记录内容默认值
 
 - 用户消息 → `## Q · 时间` + 全文;助手回复 → 原文 Markdown(含 LaTeX)。
-- **thinking 块默认不记录**;工具调用/结果折叠为可折叠块(默认 `<details>`;`foldStyle` 设为 `"obsidian"` 时用 Obsidian 可折叠 callout)。短参数合并进 summary(如 `read src/render.ts:10-60`),过长/多行参数与结果留在折叠内容中;输出过长截断。
+- **thinking 块默认不记录**;工具调用/结果折叠为可折叠块(默认 `<details>`;`foldStyle` 设为 `"obsidian"` 时用 Obsidian 可折叠 callout)。短参数合并进 summary(如 `read src/render.ts:10-60`),过长/多行参数与结果留在折叠内容中;参数与结果共用同一套头尾截断预算(`outputMaxLines` + `outputMaxChars`)。
 - `!`/`!!` 终端命令(`bashExecution`)默认不记录;
 - 图片默认省略(仅标注数量)。
 
@@ -56,11 +56,10 @@ src/pi-md-log.config.json
 |---|---|---|
 | `includeThinking` | `false` | 是否记录助手 thinking 块 |
 | `includeBashExecution` | `false` | 是否记录 `!`/`!!` 终端命令 |
-| `outputMaxLines` | `200` | 工具/终端输出保留的最大行数 |
-| `outputMaxBytes` | `20480` | 工具/终端输出保留的最大字节数 |
-| `outputHeadRatio` | `0.4` | 输出预算中头部保留比例 |
-| `commandMaxChars` | `120` | 工具 `<summary>` 里命令的最大字符数 |
-| `argumentsMaxChars` | `4000` | 工具参数/完整 bash 命令的最大字符数 |
+| `outputMaxLines` | `50` | 工具参数/结果头尾截断前的最大行数 |
+| `outputMaxChars` | `4000` | 工具参数/结果头尾截断前的最大字符数 |
+| `outputHeadRatio` | `0.4` | 截断预算中头部保留比例(其余留给尾部) |
+| `commandMaxChars` | `120` | 命令/参数超过多少字符就不再内联、改为折叠 |
 | `bashCommandMaxChars` | `200` | `bashExecution` 标题里命令的最大字符数 |
 | `foldStyle` | `"obsidian"` | 折叠语法:`"details"`(`<details>`)或 `"obsidian"`(`> [!note]-` 可折叠 callout) |
 
